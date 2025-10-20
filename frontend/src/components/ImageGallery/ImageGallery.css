@@ -1,0 +1,102 @@
+/*
+ * 📸 Improved Responsive Masonry Image Gallery CSS
+ */
+
+:root {
+  /* Define CSS variables for easier maintenance */
+  --gallery-gap: 16px; /* Increased gap for better visual separation */
+  --image-radius: 10px;
+  --transition-speed: 0.35s;
+  --shadow-color: rgba(0, 0, 0, 0.25);
+}
+
+.image-gallery {
+  /* Initial settings for the column layout */
+  column-gap: var(--gallery-gap);
+  column-count: 3; /* Default for medium/large screens */
+  padding: var(--gallery-gap); /* Add padding around the whole gallery */
+}
+
+/* -----------------------------------
+ * IMAGE STYLING & HOVER EFFECTS
+ * ----------------------------------- */
+
+.image-gallery img {
+  width: 100%;
+  /* Ensures images break naturally into columns */
+  break-inside: avoid;
+  
+  border-radius: var(--image-radius);
+  display: block;
+  margin-bottom: var(--gallery-gap); /* Use the CSS variable for consistency */
+  
+  /* Smoother transition */
+  transition: transform var(--transition-speed) cubic-bezier(0.2, 0.8, 0.2, 1), 
+              box-shadow var(--transition-speed) ease-in-out;
+  cursor: zoom-in; /* More specific cursor for opening a modal */
+}
+
+.image-gallery img:hover {
+  /* Slight lift and scale for an engaging effect */
+  transform: translateY(-2px) scale(1.02); 
+  box-shadow: 0 8px 25px var(--shadow-color);
+  
+  /* Necessary for hover effects to prevent clipping and overlap siblings */
+  position: relative; 
+  z-index: 20; 
+}
+
+.image-gallery.loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.5);
+  backdrop-filter: blur(2px);
+}
+
+
+/* -----------------------------------
+ * RESPONSIVENESS: SIMPLIFIED MEDIA QUERIES
+ * ----------------------------------- */
+
+/* Base: Mobile First (1 column) - This is the default setup for small screens */
+@media (max-width: 600px) {
+  .image-gallery {
+    column-count: 1;
+    padding: 10px;
+  }
+}
+
+/* Tablet / Small Desktop (2 columns) */
+@media (min-width: 601px) {
+  .image-gallery {
+    column-count: 2;
+  }
+}
+
+/* Medium Desktop (3 columns) - Matches the initial .image-gallery setting, but good practice to keep here */
+@media (min-width: 901px) {
+  .image-gallery {
+    column-count: 3;
+  }
+}
+
+/* Large Desktop (4 columns) - Simplified break points */
+@media (min-width: 1201px) {
+  .image-gallery {
+    column-count: 4; 
+  }
+}
+
+/* Extra Large Desktop (5 columns) */
+@media (min-width: 1501px) {
+  .image-gallery {
+    column-count: 5;
+  }
+}
+
+/* Max Width - Optional: Add a max-width to keep the gallery from getting too wide on HUGE screens */
+.gallery-wrapper {
+  max-width: 1920px;
+  margin: 0 auto;
+}

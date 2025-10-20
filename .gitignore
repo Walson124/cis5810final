@@ -1,0 +1,43 @@
+# Node modules (huge, auto-generated)
+node_modules/
+
+# Vite build output
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS-specific
+.DS_Store         # macOS
+Thumbs.db         # Windows
+
+# IDEs & editors
+.vscode/
+.idea/
+*.swp             # Vim
+*.sublime-workspace
+
+# dotenv files (if you're storing secrets locally)
+.env
+.env.local
+.env.*.local
+
+# TypeScript (if using)
+*.tsbuildinfo
+
+# Optional: lock files (if you want to ignore them — not always recommended)
+# package-lock.json
+# yarn.lock
+
+# Coverage reports (if using testing)
+coverage/
+
+# Cache directories
+.cache/
+.vite/
+
+package-lock.json
+
+dummy/
