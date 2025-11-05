@@ -10,9 +10,9 @@ actual functions callable to give recommendations
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from numpy.linalg import norm
 import matplotlib.pyplot as plt
 from PIL import Image
+from numpy.linalg import norm
 from itertools import combinations
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -94,57 +94,59 @@ def recommend_outfit(k):
 
     return best_outfit, best_score
 
-    def display_outfit(outfit, figsize=(12, 8)):
-        """Display outfit pieces in a grid layout with labels."""
-        if not outfit:
-            print("No outfit to display")
-            return
 
-        # Layout config
-        fig = plt.figure(figsize=figsize)
-    
-        # Determine grid size based on outfit pieces
-        n_pieces = len(outfit)
-        if n_pieces <= 3:
-            rows, cols = 1, n_pieces
-        else:
-            rows = (n_pieces + 2) // 3  # ceiling division
-            cols = min(3, n_pieces)
-    
-        for idx, (part, row) in enumerate(outfit.items()):
-            # Create subplot
-            ax = fig.add_subplot(rows, cols, idx + 1)
-            ax.axis('off')
+def display_outfit(outfit, figsize=(12, 8)):
+    """Display outfit pieces in a grid layout with labels."""
+    if not outfit:
+        print("No outfit to display")
+        return
+
+    # Layout config
+    fig = plt.figure(figsize=figsize)
+
+    # Determine grid size based on outfit pieces
+    n_pieces = len(outfit)
+    if n_pieces <= 3:
+        rows, cols = 1, n_pieces
+    else:
+        rows = (n_pieces + 2) // 3  # ceiling division
+        cols = min(3, n_pieces)
+
+    for idx, (part, row) in enumerate(outfit.items()):
+        # Create subplot
+        ax = fig.add_subplot(rows, cols, idx + 1)
+        ax.axis('off')
+
+        # Load and display image
+        try:
+            img_path = BASE_DIR / row['rgba_path']
+            img = Image.open(img_path)
         
-            # Load and display image
-            try:
-                img_path = BASE_DIR / row['rgba_path']
-                img = Image.open(img_path)
-            
-                # Convert RGBA to RGB with white background
-                if img.mode == 'RGBA':
-                    background = Image.new('RGBA', img.size, (255, 255, 255, 255))
-                    img = Image.alpha_composite(background, img)
-            
-                plt.imshow(img)
-            
-                # Add title with part type
-                plt.title(f"{part.title()}\n{row['class']}", pad=10)
-            
-            except Exception as e:
-                print(f"Error loading image for {part}: {e}")
-                # Show empty placeholder
-                ax.text(0.5, 0.5, f"Missing\n{part}", 
-                       ha='center', va='center', transform=ax.transAxes)
-    
-        plt.tight_layout()
-        plt.show()
+            # Convert RGBA to RGB with white background
+            if img.mode == 'RGBA':
+                background = Image.new('RGBA', img.size, (255, 255, 255, 255))
+                img = Image.alpha_composite(background, img)
+        
+            plt.imshow(img)
+        
+            # Add title with part type
+            plt.title(f"{part.title()}\n{row['class']}", pad=10)
+        
+        except Exception as e:
+            print(f"Error loading image for {part}: {e}")
+            # Show empty placeholder
+            ax.text(0.5, 0.5, f"Missing\n{part}", 
+                    ha='center', va='center', transform=ax.transAxes)
+
+    plt.tight_layout()
+    plt.show()
+
 
 def main():
     outfit1, score1 = recommend_outfit(5)
     print_outfit(outfit1)
-        print(f"\nOutfit compatibility score: {score1:.3f}")
-        display_outfit(outfit1)
+    print(f"\nOutfit compatibility score: {score1:.3f}")
+    display_outfit(outfit1)
     
 if __name__ == "__main__":
     main()
