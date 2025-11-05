@@ -41,3 +41,5 @@ coverage/
 package-lock.json
 
 dummy/
+
+recommend/__pycache__/

@@ -1,4 +1,3 @@
-import os
 import json
 import uuid
 from pathlib import Path
@@ -33,6 +32,28 @@ def extract_top_colors(image_path, n_colors=3):
 
     return colors
 
+def category(cls):
+    tops = {"t-shirt", "shirt", "blouse", "sweater", "hoodie", "cardigan",
+    "jacket", "coat", "blazer",}
+    bottoms = {"jeans", "trousers", "pants", "shorts", "skirt"}
+    fullbody = {"dress"}
+    shoes = {"sneakers", "boots", "heels", "sandals"}
+    accessories = {"backpack", "hat", "scarf", "gloves", "sunglasses"}
+
+    cls = cls.lower().strip()
+    if cls in tops:
+        return "top"
+    elif cls in bottoms:
+        return "bottom"
+    elif cls in fullbody:
+        return "fullbody"
+    elif cls in shoes:
+        return "shoes"
+    elif cls in accessories:
+        return "accessories"
+    else:
+        return "unknown"
+
 
 def process_folder(folder_path):
     """Read manifest.json, extract data, return one row dict."""
@@ -44,17 +65,19 @@ def process_folder(folder_path):
         manifest = json.load(f)
 
     detections = manifest["detections"][0]
-    group_type = detections['class']
+    cls = manifest["clip_topk"][0][0]
     rgba_path = detections["rgba_path"]  
     #"rgba_path": "out\\american_vintage_men_s_black_jacket\\rgba\\00_jacket.png",
 
     color_vec = extract_top_colors(BASE_DIR / rgba_path)
+    group_type = category(cls)
 
     item_id = str(uuid.uuid4())[:8]  # short random id
     return {
         "id": item_id,
         "folder_name": folder_path.name,
-        "group_type": group_type,
+        "class": cls,
+        "type": group_type,
         "rgba_path": str(rgba_path),
         "color_vec": color_vec.tolist(),
     }
@@ -67,11 +90,12 @@ def main():
             row = process_folder(subfolder)
             if row:
                 rows.append(row)
+                print(f"processing {row['folder_name']}")
 
     df = pd.DataFrame(rows)
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_CSV, index=False)
-    print(f"✅ Saved wardrobe data to {OUTPUT_CSV}")
+    print(f"Saved wardrobe data to {OUTPUT_CSV}")
     print(df.head())
 
 
