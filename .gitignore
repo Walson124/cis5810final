@@ -42,4 +42,10 @@ package-lock.json
 
 dummy/
 
+# cache from recommend
 recommend/__pycache__/
+
+# Leave out tests
+out/
+data/
+images/

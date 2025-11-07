@@ -127,7 +127,7 @@ def main():
             row = process_folder(subfolder, M)
             if row:
                 rows.append(row)
-                print(f"processing {row['folder_name']}")
+                print(f"{row['folder_name']} -> ok")
 
     df = pd.DataFrame(rows)
 

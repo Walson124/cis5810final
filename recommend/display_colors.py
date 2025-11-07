@@ -29,7 +29,7 @@ def load_df(csv_path: Path):
     return df
 
 
-def show_swatches(df, n=12):
+def show_swatches(df, n=20):
     rows = df.dropna(subset=["color_vec_parsed"]).head(n)
     if rows.empty:
         print("No color data to display.")
