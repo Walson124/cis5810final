@@ -7,6 +7,7 @@ Make sure your environment satisfies requirement.txt
 
 ### 1. Prepare Inputs
 Create a folder `FOLDER` to store your input images (ideally pictures taken by the user).
+Here's a sample Ren compiled: [link](https://drive.google.com/file/d/1akAa_kisOb_4FkioHZY4VYBgbb_tRBbB/view?usp=sharing)
 
 ### 2. Segment Images
 From the project root, run:
