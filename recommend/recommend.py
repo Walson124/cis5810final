@@ -111,7 +111,7 @@ def recommend_outfit(k):
     for i in range(k):
         outfit = sample_outfit(used_combos)
 
-        score = outfit.color_c_score
+        score = outfit.color_c_score  # alternative to use emb_c_score
         print_outfit(outfit)
         print(f"compatibility score(emb): {score:.3f}")
         if score > best_score:

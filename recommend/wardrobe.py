@@ -1,11 +1,12 @@
 # wardrobe.py
 """
 process outputs from segmentation and store into a csv with cols:
-    id,folder_name,class,type,rgba_path,color_vec
+    id,folder_name,class,type,rgba_path,color_vec,clip_emb_path
 
-color_vec: the top 3 colors occuring in an given piece, later used to computer cosine similarity
+def add_pieces(img_paths: list[str]):
+    # takes a list of folder paths of newly segmented images, and updates csv
+
 """
-
 
 import json
 import uuid
@@ -16,7 +17,6 @@ import numpy as np
 from sklearn.cluster import KMeans
 
 from transformers import CLIPProcessor, CLIPModel
-from PIL import Image
 import torch, os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -79,7 +79,6 @@ def category(cls):
     else:
         return "unknown"
 
-
 def process_folder(folder_path, M: Models):
     """Read manifest.json, extract data, return one row dict."""
     manifest_path = folder_path / "manifest.json"
@@ -115,8 +114,32 @@ def process_folder(folder_path, M: Models):
         "clip_emb_path": str(clip_emb_path)
     }
 
+def add_pieces(img_paths: list[str]):
+    # takes a list of folder paths of newly segmented images, and updates csv
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    M = Models(device=device)
+    
+    rows = []
+    for path in img_paths:
+        path = Path(path)
+        if path.is_dir():
+            row = process_folder(path, M)
+            if row:
+                rows.append(row)
+                print(f"{row['folder_name']} -> ok")
+
+    df = pd.DataFrame(rows)
+
+    if OUTPUT_CSV.exists():
+        # append without writing header again
+        df.to_csv(OUTPUT_CSV, mode='a', header=False, index=False)
+    else:
+        # create new file with header
+        df.to_csv(OUTPUT_CSV, index=False)
 
 def main():
+    # process entire folder in 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     M = Models(device=device)
