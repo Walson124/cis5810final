@@ -33,3 +33,15 @@ Run:
 python recommend/recommend.py
 ```
 This recommends and displays an outfit based on your wardrobe.
+
+***
+
+# How to run frontend on local
+
+We are using streamlit now, easier to run locally than full react application w/ some separate backend
+
+To run:
+- cd into root dir (cis5810final)
+- Run `streamlit run streamlit_app/Home.py`
+
+You'll need streamlit installed: `pip install streamlit`
