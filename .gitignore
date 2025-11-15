@@ -49,3 +49,8 @@ recommend/__pycache__/
 out/
 data/
 images/
+
+wardrobe_images
+wardrobe_segmented
+
+__pycache__
