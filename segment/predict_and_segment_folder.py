@@ -1,5 +1,7 @@
 import os, json, argparse, sys, traceback
 from pathlib import Path
+import streamlit as st
+import shutil
 
 import numpy as np
 import torch, cv2
@@ -242,6 +244,74 @@ def process_image(image_path: Path, out_root: Path, M: Models,
         json.dump(per_image_manifest, f, indent=2)
 
     return per_image_manifest
+
+
+##########################
+# Segment folder function
+##########################
+def segment_folder(images_dir, out_root="out", labels=None, M=None):
+    if M is None:
+        # fallback — but normally shouldn't be used
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if labels is None:
+            labels = DEFAULT_LABELS
+        M = Models(labels=labels, det_model=DET_MODEL, sam_model=SAM_MODEL, device=device)
+    
+    images_dir = Path(images_dir)
+    out_root = Path(out_root)
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    paths = sorted([p for p in images_dir.iterdir() if p.suffix.lower() in VALID_EXTS])
+    results = []
+
+    for p in paths:
+        img_stem = p.stem
+        seg_img_folder = out_root / img_stem / "rgba"
+
+        # Skip already processed items
+        if seg_img_folder.exists() and any(seg_img_folder.iterdir()):
+            results.append({"image": str(p), "skipped": True})
+            continue
+
+        try:
+            # result = process_image(
+            #     image_path=p,
+            #     out_root=out_root,
+            #     M=M,
+            #     det_thresh=0.25,
+            #     nms_iou=0.50,
+            #     global_iou=0.60,
+            #     min_area_frac=0.003,
+            #     topk_clip=5,
+            #     keep_k=2
+            # )
+            result = process_image(
+                image_path=p, 
+                out_root=out_root, 
+                M=M, 
+                det_thresh=DET_THRESH, 
+                nms_iou=NMS_IOU, 
+                global_iou=GLOBAL_IOU, 
+                min_area_frac=MIN_AREA_FRAC, 
+                topk_clip=TOPK_CLIP, 
+                keep_k=1 
+            )
+            # verify output creation
+            out_base = out_root / p.stem
+            if not (out_base.exists() and any(out_base.rglob("*"))):
+                raise RuntimeError("Segmentation produced no files")
+
+        except Exception as e:
+            result = {"image": str(p), "error": str(e)}
+            # cleanup partial
+            out_base = out_root / p.stem
+            if out_base.exists():
+                shutil.rmtree(out_base)
+
+        results.append(result)
+
+    return results
+
 
 # ---------------- CLI ----------------
 def main():

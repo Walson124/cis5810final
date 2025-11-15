@@ -20,7 +20,8 @@ from transformers import CLIPProcessor, CLIPModel
 import torch, os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-OUT_DIR = (BASE_DIR / "out").resolve()
+# OUT_DIR = (BASE_DIR / "out").resolve()
+OUT_DIR = (BASE_DIR / "wardrobe_segmented").resolve()
 OUTPUT_CSV = (BASE_DIR / "data" / "wardrobe.csv").resolve()
 
 class Models:
@@ -132,11 +133,11 @@ def add_pieces(img_paths: list[str]):
     df = pd.DataFrame(rows)
 
     if OUTPUT_CSV.exists():
-        # append without writing header again
         df.to_csv(OUTPUT_CSV, mode='a', header=False, index=False)
     else:
-        # create new file with header
+        OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)  # <-- create folder if missing
         df.to_csv(OUTPUT_CSV, index=False)
+
 
 def main():
     # process entire folder in 

@@ -14,25 +14,29 @@ from numpy.linalg import norm
 from itertools import combinations
 import torch
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-WARDROBE_CSV = (BASE_DIR / 'data/wardrobe.csv').resolve()
-wardrobe_df = pd.read_csv(WARDROBE_CSV)
+BASE_DIR = Path(__file__).resolve().parents[1]  # cis5810final/
+WARDROBE_CSV = BASE_DIR / 'data' / 'wardrobe.csv'
+
+def load_wardrobe():
+    """Load wardrobe CSV safely, raises informative error if not present."""
+    if not WARDROBE_CSV.exists():
+        raise FileNotFoundError(f"{WARDROBE_CSV} not found. Run wardrobe.py first!")
+    df = pd.read_csv(WARDROBE_CSV)
+    return df
 
 # keep a set of used outfit IDs so we don't repeat ?
 
 class Outfit:
-    def __init__(self, ids):  # ids is a list of ids for each piece (to look up inwardrove.df)
+    def __init__(self, ids, wardrobe_df=None):
         self.ids = ids
+        self.wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
         self.emb_c_score = self.compute_compatibility_emb()
         self.color_c_score = self.compute_compatibility_color()
-        # save id for each outfit?
 
     def embeddings(self):
-        "returns embeddings of outfit in the form of an array of tensors"
-        pieces = wardrobe_df.loc[wardrobe_df['id'].isin(self.ids)]
-        embs = [torch.load(p).flatten() for p in pieces['clip_emb_path'].tolist()]  # flatten each to 1D
-        embs = torch.stack(embs)  # shape: [num_pieces, embedding_dim]
-        return embs
+        pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
+        embs = [torch.load(p).flatten() for p in pieces['clip_emb_path'].tolist()]
+        return torch.stack(embs)
 
     def compute_compatibility_emb(self):
         embs = self.embeddings()
@@ -42,117 +46,94 @@ class Outfit:
         return score
 
     def compute_compatibility_color(self):
-        """evaluate color compatibility among pieces (list of pd.Series)"""
-        pieces = wardrobe_df.loc[wardrobe_df['id'].isin(self.ids)]
-        color_mats = []
-        for _, row in pieces.iterrows():
-            c = row["color_vec"]
-            arr = np.array(eval(c), dtype=float)  # if stored as list; use json.loads(c) if stored as string
-            color_mats.append(arr)
-
-        def cosine_similarity(a, b):
-            v1, v2 = a.flatten(), b.flatten()
-            return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-
-        scores = [cosine_similarity(p1, p2) for p1, p2 in combinations(color_mats, 2)]
-        score = float(np.clip(np.mean(scores), 0, 1))
-        self.color_c_score = score
-        return score
+        pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
+        color_mats = [np.array(eval(c), dtype=float) for c in pieces['color_vec']]
+        scores = [np.dot(p1.flatten(), p2.flatten()) / (np.linalg.norm(p1) * np.linalg.norm(p2))
+                  for p1, p2 in combinations(color_mats, 2)]
+        return float(np.clip(np.mean(scores), 0, 1))
 
 
-def sample_outfit(used_combos):
-    """
-    Sample a valid, non_used outfit.
-    returns a Outfit object
-    """
-
-    pieces = []
+def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
+    wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
     types = wardrobe_df["type"].unique()
 
-    use_fullbody = "fullbody" in types and np.random.rand() < 0.5
-    if use_fullbody:
-        pieces.append(wardrobe_df[wardrobe_df["type"] == "fullbody"].sample(1).iloc[0])
-    else:
-        if "top" in types:
-            pieces.append(wardrobe_df[wardrobe_df["type"] == "top"].sample(1).iloc[0])
-        if "bottom" in types:
-            pieces.append(wardrobe_df[wardrobe_df["type"] == "bottom"].sample(1).iloc[0])
+    for attempt in range(max_attempts):
+        pieces = []
 
-    if "shoes" in types:
-        pieces.append(wardrobe_df[wardrobe_df["type"] == "shoes"].sample(1).iloc[0])
+        # Decide whether to use fullbody
+        use_fullbody = "fullbody" in types and np.random.rand() < 0.5
+        if use_fullbody and len(wardrobe_df[wardrobe_df["type"] == "fullbody"]) > 0:
+            pieces.append(wardrobe_df[wardrobe_df["type"] == "fullbody"].sample(1).iloc[0])
+        else:
+            if "top" in types and len(wardrobe_df[wardrobe_df["type"] == "top"]) > 0:
+                pieces.append(wardrobe_df[wardrobe_df["type"] == "top"].sample(1).iloc[0])
+            if "bottom" in types and len(wardrobe_df[wardrobe_df["type"] == "bottom"]) > 0:
+                pieces.append(wardrobe_df[wardrobe_df["type"] == "bottom"].sample(1).iloc[0])
 
-    # optional accessory
-    if "accessories" in types and np.random.rand() < 0.2:
-        pieces.append(wardrobe_df[wardrobe_df["type"] == "accessories"].sample(1).iloc[0])
+        if "shoes" in types and len(wardrobe_df[wardrobe_df["type"] == "shoes"]) > 0:
+            pieces.append(wardrobe_df[wardrobe_df["type"] == "shoes"].sample(1).iloc[0])
+        if "accessories" in types and len(wardrobe_df[wardrobe_df["type"] == "accessories"]) > 0 and np.random.rand() < 0.2:
+            pieces.append(wardrobe_df[wardrobe_df["type"] == "accessories"].sample(1).iloc[0])
 
-    ids = tuple(sorted(row["id"] for row in pieces))
+        # Generate the combination ID
+        ids = tuple(sorted(row["id"] for row in pieces))
 
-    if ids in used_combos:
-        return sample_outfit(used_combos)
-    used_combos.add(ids)
+        # Check if this combination is already used
+        if ids not in used_combos:
+            used_combos.add(ids)
+            return Outfit(list(ids), wardrobe_df)
 
-    outfit = Outfit(list(ids))
-    return outfit
+    # If we reach here, we couldn't find a new outfit
+    raise ValueError("Could not sample a new outfit — not enough wardrobe items or all combinations used")
 
 
-def print_outfit(outfit: Outfit):
-    pieces = wardrobe_df.loc[wardrobe_df["id"].isin(outfit.ids)]
-
+def print_outfit(outfit):
+    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df["id"].isin(outfit.ids)]
     for _, row in pieces.iterrows():
-        part = row["type"]
-        print(f"{part.upper():<10} | {row['folder_name']} ({row['class']})")
+        print(f"{row['type'].upper():<10} | {row['folder_name']} ({row['class']})")
 
-def recommend_outfit(k):
-    ''' sample k outfits and return best one '''
+
+def recommend_outfit(k, wardrobe_df=None):
+    wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
     used_combos = set()
-    
     best_score, best_outfit = 0, None
-    
-    for i in range(k):
-        outfit = sample_outfit(used_combos)
 
-        score = outfit.color_c_score  # alternative to use emb_c_score
+    for _ in range(k):
+        outfit = sample_outfit(used_combos, wardrobe_df)
+        score = outfit.color_c_score
         print_outfit(outfit)
-        print(f"compatibility score(emb): {score:.3f}")
+        print(f"compatibility score(color): {score:.3f}")
         if score > best_score:
-            best_score = score
-            best_outfit = outfit
+            best_score, best_outfit = score, outfit
 
     return best_outfit, best_score
 
 
 def display_outfit(outfit, figsize=(12, 8)):
-    """Display outfit pieces in a grid layout with labels."""
     if not outfit:
         print("No outfit to display")
         return
 
     fig = plt.figure(figsize=figsize)
-    pieces = wardrobe_df.loc[wardrobe_df['id'].isin(outfit.ids)]
+    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df['id'].isin(outfit.ids)]
     n_pieces = len(pieces)
-
     cols = min(3, n_pieces)
-    rows = (n_pieces + cols - 1) // cols  # ceiling division
+    rows = (n_pieces + cols - 1) // cols
 
     for i, (_, row) in enumerate(pieces.iterrows(), start=1):
         ax = fig.add_subplot(rows, cols, i)
         ax.axis('off')
-
         try:
             img_path = Path(row['rgba_path'])
             if not img_path.is_absolute():
                 img_path = BASE_DIR / img_path
-
             img = Image.open(img_path)
             if img.mode == 'RGBA':
                 background = Image.new('RGBA', img.size, (255, 255, 255, 255))
                 img = Image.alpha_composite(background, img)
             plt.imshow(img)
-
         except Exception as e:
-            print(f"Error loading image for {row['folder_name']}: {e}")
-            ax.text(0.5, 0.5, f"Missing\n{row['folder_name']}", 
-                    ha='center', va='center', transform=ax.transAxes)
+            ax.text(0.5, 0.5, f"Missing\n{row['folder_name']}", ha='center', va='center', transform=ax.transAxes)
 
     plt.tight_layout()
     plt.show()
