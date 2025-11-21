@@ -32,6 +32,8 @@ class Outfit:
         self.wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
         self.emb_c_score = self.compute_compatibility_emb()
         self.color_c_score = self.compute_compatibility_color()
+        # self.score = self.color_c_score
+        self.score = ( self.color_c_score + self.emb_c_score ) / 2
 
     def embeddings(self):
         pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
@@ -72,7 +74,7 @@ def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
 
         if "shoes" in types and len(wardrobe_df[wardrobe_df["type"] == "shoes"]) > 0:
             pieces.append(wardrobe_df[wardrobe_df["type"] == "shoes"].sample(1).iloc[0])
-        if "accessories" in types and len(wardrobe_df[wardrobe_df["type"] == "accessories"]) > 0 and np.random.rand() < 0.2:
+        if "accessories" in types and len(wardrobe_df[wardrobe_df["type"] == "accessories"]) > 0 and np.random.rand() < 0.5:
             pieces.append(wardrobe_df[wardrobe_df["type"] == "accessories"].sample(1).iloc[0])
 
         # Generate the combination ID
@@ -91,23 +93,31 @@ def print_outfit(outfit):
     pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df["id"].isin(outfit.ids)]
     for _, row in pieces.iterrows():
         print(f"{row['type'].upper():<10} | {row['folder_name']} ({row['class']})")
+    print('\n')
 
 
-def recommend_outfit(k, wardrobe_df=None):
+def recommend_outfit(k, wardrobe_df=None, amt='one'):
     wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
     used_combos = set()
     best_score, best_outfit = 0, None
+    outfits = []
 
     for _ in range(k):
         outfit = sample_outfit(used_combos, wardrobe_df)
-        score = outfit.color_c_score
+        outfits.append(outfit)
+    
+        score = outfit.score
         print_outfit(outfit)
-        print(f"compatibility score(color): {score:.3f}")
+        print(f"color: {outfit.color_c_score:.3f}, clip_emb: {outfit.emb_c_score:.3f}, AVG: {outfit.score}")
         if score > best_score:
             best_score, best_outfit = score, outfit
 
-    return best_outfit, best_score
-
+    
+    if (amt == 'many'):
+        outfits.sort(key=lambda x: x.score, reverse=True)
+        return outfits
+    
+    return best_outfit, best_score  # if (amt == 'one'): 
 
 def display_outfit(outfit, figsize=(12, 8)):
     if not outfit:
@@ -117,7 +127,7 @@ def display_outfit(outfit, figsize=(12, 8)):
     fig = plt.figure(figsize=figsize)
     pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df['id'].isin(outfit.ids)]
     n_pieces = len(pieces)
-    cols = min(3, n_pieces)
+    cols = min(4, n_pieces)
     rows = (n_pieces + cols - 1) // cols
 
     for i, (_, row) in enumerate(pieces.iterrows(), start=1):
@@ -140,10 +150,16 @@ def display_outfit(outfit, figsize=(12, 8)):
 
 
 def main():
-    outfit1, score1 = recommend_outfit(5)
+    outfits = recommend_outfit(10, amt='many')
     # print_outfit(outfit1)
     # print(f"\nOutfit compatibility score: {score1:.3f}")
+    outfit1 = outfits[0]
+    print('------FINAL OUTFIT------')
+    print_outfit(outfit=outfit1)        
+    print(f"color: {outfit1.color_c_score:.3f}, clip_emb: {outfit1.emb_c_score:.3f}, AVG: {outfit1.score}")
+
     display_outfit(outfit1)
+    
     
 if __name__ == "__main__":
     main()
