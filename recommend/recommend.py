@@ -32,8 +32,7 @@ class Outfit:
         self.wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
         self.emb_c_score = self.compute_compatibility_emb()
         self.color_c_score = self.compute_compatibility_color()
-        # self.score = self.color_c_score
-        self.score = ( self.color_c_score + self.emb_c_score ) / 2
+        self.score = (self.color_c_score + self.emb_c_score) / 2
 
     def embeddings(self):
         pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
