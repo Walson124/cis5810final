@@ -13,6 +13,9 @@ from PIL import Image
 from numpy.linalg import norm
 from itertools import combinations
 import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # cis5810final/
 WARDROBE_CSV = BASE_DIR / 'data' / 'wardrobe.csv'
@@ -30,28 +33,44 @@ class Outfit:
     def __init__(self, ids, wardrobe_df=None):
         self.ids = ids
         self.wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
-        self.emb_c_score = self.compute_compatibility_emb()
-        self.color_c_score = self.compute_compatibility_color()
-        self.score = (self.color_c_score + self.emb_c_score) / 2
+        self.emb_c_score = self.compatibility_emb()
+        self.color_c_score = self.compatibility_color()
+        self.tftdf_score = self.compatibility_tfidf()
+        self.score = self.tftdf_score # (self.color_c_score + self.emb_c_score) / 2
 
     def embeddings(self):
         pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
-        embs = [torch.load(p).flatten() for p in pieces['clip_emb_path'].tolist()]
+        embs = [torch.load(p, weights_only=True).flatten() for p in pieces['clip_emb_path'].tolist()]
         return torch.stack(embs)
 
-    def compute_compatibility_emb(self):
+    def compatibility_emb(self):
         embs = self.embeddings()
         cos_sim_matrix = torch.mm(embs, embs.T)
         mask = ~torch.eye(embs.size(0), dtype = bool)
         score = cos_sim_matrix[mask].mean()  # score computed based on mean of off-diagonal cos sim
         return score
 
-    def compute_compatibility_color(self):
+    def compatibility_color(self):
         pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
         color_mats = [np.array(eval(c), dtype=float) for c in pieces['color_vec']]
         scores = [np.dot(p1.flatten(), p2.flatten()) / (np.linalg.norm(p1) * np.linalg.norm(p2))
                   for p1, p2 in combinations(color_mats, 2)]
         return float(np.clip(np.mean(scores), 0, 1))
+    
+   
+    def compatibility_tfidf(self):
+        pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
+
+        descriptions = pieces["description"].astype(str).tolist()
+
+        vectorizer = TfidfVectorizer()
+
+        tfidf = vectorizer.fit_transform(descriptions)
+        sim_matrix = cosine_similarity(tfidf)
+        # mask out diagonal (self similarity)
+        mask = ~np.eye(sim_matrix.shape[0], dtype=bool)
+
+        return float(sim_matrix[mask].mean())
 
 
 def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
@@ -102,12 +121,19 @@ def recommend_outfit(k, wardrobe_df=None, amt='one'):
     outfits = []
 
     for _ in range(k):
-        outfit = sample_outfit(used_combos, wardrobe_df)
+        try:
+            outfit = sample_outfit(used_combos, wardrobe_df)
+        except ValueError:
+            if amt == 'many':
+                outfits.sort(key=lambda x: x.score, reverse=True)
+                return outfits
+            return best_outfit, best_score  # amt == 'one'
+
         outfits.append(outfit)
     
         score = outfit.score
         print_outfit(outfit)
-        print(f"color: {outfit.color_c_score:.3f}, clip_emb: {outfit.emb_c_score:.3f}, AVG: {outfit.score}")
+        print(f"color: {outfit.color_c_score:.3f}, clip_emb: {outfit.emb_c_score:.3f}, tf-tdf: {outfit.tftdf_score:.3f}, overall: {outfit.score}")
         if score > best_score:
             best_score, best_outfit = score, outfit
 
@@ -149,15 +175,14 @@ def display_outfit(outfit, figsize=(12, 8)):
 
 
 def main():
-    outfits = recommend_outfit(10, amt='many')
+    outfits = recommend_outfit(10, amt='one')
     # print_outfit(outfit1)
     # print(f"\nOutfit compatibility score: {score1:.3f}")
-    outfit1 = outfits[0]
+    outfit = outfits[0]
     print('------FINAL OUTFIT------')
-    print_outfit(outfit=outfit1)        
-    print(f"color: {outfit1.color_c_score:.3f}, clip_emb: {outfit1.emb_c_score:.3f}, AVG: {outfit1.score}")
-
-    display_outfit(outfit1)
+    print_outfit(outfit=outfit)   
+    print(f"color: {outfit.color_c_score:.3f}, clip_emb: {outfit.emb_c_score:.3f}, tf-tdf: {outfit.tftdf_score:.3f}, overall: {outfit.score}")
+    display_outfit(outfit)
     
     
 if __name__ == "__main__":
