@@ -98,7 +98,7 @@ def process_folder(folder_path, M: Models):
     rgba_path = detections["rgba_path"]
     #    "rgba_path": "out\\gap_mens_brown_and_tan_shirt\\rgba\\00_jacket.png",
     #    OUT_DIR = (BASE_DIR / "wardrobe_segmented").resolve()
-    rgba_path = rgba_path.replace("out\\", str(OUT_DIR) + "\\", 1)
+    # rgba_path = rgba_path.replace("out\\", str(OUT_DIR) + "\\", 1)
 
     
     try:
@@ -110,7 +110,15 @@ def process_folder(folder_path, M: Models):
     clip_emb_path = M.clip_embedding(image, folder_path)
 
     client = gemini_client.init_client()
-    description = gemini_client.get_fashion_attributes(client, rgba_path)
+    json_dict = gemini_client.get_fashion_attributes(client, rgba_path)
+    description = json_dict['DESCRIPTION']
+    attributes_path = folder_path / 'attributes.json'
+    try:
+        with open(attributes_path, 'w') as f:
+            json.dump(json_dict, f, indent=4)
+
+    except Exception as e:
+        print(f" Error saving JSON file: {e}")
 
     return {
         "id": item_id,
@@ -120,7 +128,8 @@ def process_folder(folder_path, M: Models):
         "rgba_path": str(rgba_path),
         "color_vec": color_vec.tolist(),
         "clip_emb_path": str(clip_emb_path),
-        "description": description
+        "description": description,
+        "attributes_path": attributes_path
     }
 
 def add_pieces(img_paths: list[str]):

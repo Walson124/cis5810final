@@ -2,6 +2,7 @@ import os
 from google import genai
 from google.genai import types
 from PIL import Image
+import json
 
 # The image file you want to analyze (replace with your file name)
 # Using an absolute path (r"...") is good for reliability
@@ -14,9 +15,6 @@ Initiate Fashion Analysis Protocol. You are designated as an expert Cognitive Fa
 
 Your core mission is to process an uploaded clothing item and crystallize its data into two relational vectors and a natural language description. Strict adherence to the 3-part JSON structure and possible prescribed controlled vocabulary is mandatory. For all (DISCRETE) fields, select the singular, most representative term.
 
-1. QUERY_VECTOR (Item Signature)
-Output the item's intrinsic signature as a JSON object. For non-discrete fields, include all relevant descriptors.
-
 Controlled Vocabulary List: 
 1.  **COLORS:** [ "Red", "Yellow", "Blue", "Green", "Orange", "Purple", "Black", "White", "Gray", "Navy", "Beige", "Tan", "Brown", "Cream", "Charcoal", "Pink", "Light Blue", "Burgundy", "Teal", "Olive", "Mustard", "Gold", "Silver", "Rose", "Cobalt", "Emerald", "Magenta", "Crimson", "Rust", "Khaki" ]
 2.  **FORMALITY:** [1 (Very Casual), 2 (Casual), 3 (Smart Casual), 4 (Business/Cocktail), 5 (Formal/Black Tie)]
@@ -25,6 +23,11 @@ Controlled Vocabulary List:
 5.  **PATTERN:** ['Solid', 'Stripes', 'Plaid', 'Floral', 'Geometric', 'Camouflage', 'Graphic', 'Animal Print']
 6.  **SEASON:** ['Summer/Lightweight', 'Transitional/Medium', 'Winter/Heavy', 'All-Season']
 7.  **STYLE:** [ "Minimalist", "Classic", "Chic", "Edgy", "Vintage", "Tailored", "Statement", "Maximalist", "Streetwear", "Athleisure", "Casual", "Utilitarian", "Lounge Wear", "Workwear", "Formalwear", "Business Casual", "Quiet Luxury", "Old Money", "Preppy", "Grunge", "Goth", "Bohemian", "Rocker", "Y2K", "Unisex", "Androgynous", "Techwear", "Sustainable", "Resort Wear", "Mod" ]
+
+--
+
+QUERY_VECTOR
+Output the item's intrinsic signature as a JSON object. For non-discrete fields, include all relevant descriptors.
 
 Required JSON Fields:
 
@@ -37,7 +40,9 @@ Detail_Key: [Critical, visible features, e.g., Notched Lapel, Pleats, Drawstring
 Formality_Level: (DISCRETE - FORMALITY)
 Style_Tags: (DISCRETE - STYLE)
 
-2. KEY_VECTOR (Recommendation)
+--
+
+KEY_VECTOR
 Output the core compatibility constraints as a JSON object. Each rule must be a list of acceptable discrete labels for a successful pairing, feel free to output an empty or a list containing all keywords if applicable.
 
 Required JSON Fields:
@@ -47,7 +52,9 @@ Rule_Texture: (DISCRETE - TEXTURE)
 Rule_Fit: (DISCRETE - FIT)
 Rule_Formality: (DISCRETE - FORMALITY)"
 
-3. DESCRIPTION
+--
+
+DESCRIPTION
 Output a short natural-language paragraph describing the item's style and vibe using plain English sentences only.
 """
 
@@ -120,31 +127,41 @@ def get_fashion_attributes(client, image_path: str):
     Thin wrapper that uses your predefined SYSTEM_PROMPT.
     Keeps your high-level call clean.
     """
-    return generate_image_description(
+    output = generate_image_description(
         client,
         image_path=image_path,
         prompt=SYSTEM_PROMPT,
         model=MODEL_NAME
     )
+    print('received response')
+
+    output = output.strip()
+    
+    if output.startswith("```json"):
+        output = output[7:-3]
+
+    data_dict = json.loads(output)
+
+    return data_dict
 
 # --- 5. EXECUTION AND DOWNSTREAM PREPARATION ---
 
 if __name__ == "__main__":
     
     try:
-        # FIX 1: Initialize the client FIRST
         client = init_client()
         
-        # FIX 2: Call the function with the correct arguments (client and IMAGE_PATH)
         natural_text = get_fashion_attributes(client, IMAGE_PATH)
         
         print("\n" + "="*50)
         print(f"| ANALYSIS COMPLETE FOR: {IMAGE_PATH}")
         print("="*50 + "\n")
 
-        # The natural language description
-        print("\n>>> NATURAL DESCRIPTION")
+        print("\n>>> RETURNED OUTPUT")
         print(natural_text)
+        # print(natural_text["QUERY_VECTOR"])
+        # print(natural_text['KEY_VECTOR'])
+        # print(natural_text['DESCRIPTION'])
 
     except (ValueError, RuntimeError, FileNotFoundError) as e:
         # Catch and print relevant errors (like missing API key or missing file)

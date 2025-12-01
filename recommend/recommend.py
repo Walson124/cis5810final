@@ -15,10 +15,18 @@ from itertools import combinations
 import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import json
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # cis5810final/
 WARDROBE_CSV = BASE_DIR / 'data' / 'wardrobe.csv'
+
+SCORE_WEIGHTS = {   # modify here 
+            'embedding': 0.1,
+            'color': 0.6,
+            'tfidf': 0.1,
+            'attribute': 0.2
+        }
 
 def load_wardrobe():
     """Load wardrobe CSV safely, raises informative error if not present."""
@@ -27,16 +35,25 @@ def load_wardrobe():
     df = pd.read_csv(WARDROBE_CSV)
     return df
 
-# keep a set of used outfit IDs so we don't repeat ?
 
 class Outfit:
+
     def __init__(self, ids, wardrobe_df=None):
         self.ids = ids
         self.wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
-        self.emb_c_score = self.compatibility_emb()
-        self.color_c_score = self.compatibility_color()
-        self.tftdf_score = self.compatibility_tfidf()
-        self.score = self.tftdf_score # (self.color_c_score + self.emb_c_score) / 2
+        self.pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
+        self.scores = {
+            'embedding': self.compatibility_emb(),
+            'color': self.compatibility_color(),
+            'tfidf': self.compatibility_tfidf(),
+            'attribute': self.compatibility_attribute()
+        }
+        self.score = 0
+        
+        for metric, score_value in self.scores.items():
+            weight = SCORE_WEIGHTS[metric]
+            weighted_score = score_value * weight
+            self.score += weighted_score
 
     def embeddings(self):
         pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
@@ -51,17 +68,13 @@ class Outfit:
         return score
 
     def compatibility_color(self):
-        pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
-        color_mats = [np.array(eval(c), dtype=float) for c in pieces['color_vec']]
+        color_mats = [np.array(eval(c), dtype=float) for c in self.pieces['color_vec']]
         scores = [np.dot(p1.flatten(), p2.flatten()) / (np.linalg.norm(p1) * np.linalg.norm(p2))
                   for p1, p2 in combinations(color_mats, 2)]
         return float(np.clip(np.mean(scores), 0, 1))
-    
    
     def compatibility_tfidf(self):
-        pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
-
-        descriptions = pieces["description"].astype(str).tolist()
+        descriptions = self.pieces["description"].astype(str).tolist()
 
         vectorizer = TfidfVectorizer()
 
@@ -71,7 +84,139 @@ class Outfit:
         mask = ~np.eye(sim_matrix.shape[0], dtype=bool)
 
         return float(sim_matrix[mask].mean())
+    
+    def compatibility_attribute(self):
+        pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
+        outfit_list = []
 
+        for i, row in pieces.iterrows():
+            try:
+                with open(row['attributes_path'], 'r') as file:
+                    outfit_list.append(json.load(file))
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                print(f"Error loading {row['attributes_path']}: {e}")
+        
+        return score_outfit_compatibility(
+            outfit_list=outfit_list,
+            weights= {
+                'Dominant_Color': 3, 
+                'Texture_Primary': 2,
+                'Fit_Silhouette': 2,
+                'Formality_Level': 4
+            }
+        )
+    
+    def print_scores(self):
+        print(f"scores:")
+        print(f"- embedding: {self.scores['embedding']}")
+        print(f"- color: {self.scores['color']}")
+        print(f"- tfidf: {self.scores['tfidf']}")
+        print(f"- attributes: {self.scores['attribute']}")
+        print(f"OVERALL: {self.score}")
+
+
+########################## attribute matching logic ############################
+
+def check_attribute_match(query_value, rule_list):
+    """Checks if a single query value is compatible with a list of allowed values."""
+    if isinstance(rule_list, list):
+        # Handles list-based rules (e.g., color, texture, fit)
+        if isinstance(query_value, list):
+            # If the query itself is a list (like Style_Tags), check if ANY tag is in the rules
+            return any(val in rule_list for val in query_value)
+        else:
+            # Simple check if the single value is in the rules list
+            return query_value in rule_list
+    # Note: You may add logic here for exact matches or range checks (e.g., Formality Level)
+    return False
+
+def score_outfit_compatibility(outfit_list, weights):
+    total_score = 0
+    max_possible_score = 0
+    
+    # 1. Iterate over all pairs (Item A vs Item B)
+    for i in range(len(outfit_list)):
+        for j in range(len(outfit_list)):
+            if i == j:
+                continue # Skip comparing an item to itself
+                
+            query_item = outfit_list[i]['QUERY_VECTOR']
+            rule_item = outfit_list[j]['KEY_VECTOR']
+            
+            # 2. Map QUERY attributes to KEY rules
+            mappings = {
+                'Dominant_Color': 'Rule_Color',
+                'Texture_Primary': 'Rule_Texture',
+                'Fit_Silhouette': 'Rule_Fit',
+                'Formality_Level': 'Rule_Formality'
+                # Add any other attribute mappings here
+            }
+            
+            # 3. Calculate score for the A vs B pair
+            pair_score = 0
+            for query_key, rule_key in mappings.items():
+                
+                weight = weights.get(query_key, 1) # Default weight of 1
+                max_possible_score += weight # Sum up total possible points
+                
+                # Check if the rule exists on the rule item
+                if rule_key in rule_item:
+                    is_compatible = check_attribute_match(
+                        query_item.get(query_key), 
+                        rule_item.get(rule_key)
+                    )
+                    if is_compatible:
+                        pair_score += weight
+
+            total_score += pair_score
+
+    print(f'max_possible_score: {max_possible_score}; total_score: {total_score}')
+
+    # 4. Normalize the score
+    if max_possible_score > 0:
+        compatibility_percentage = (total_score / max_possible_score)
+        return compatibility_percentage
+    return 0
+
+########################## outfit utils ############################
+
+def display_outfit(outfit, figsize=(12, 8)):
+    if not outfit:
+        print("No outfit to display")
+        return
+
+    fig = plt.figure(figsize=figsize)
+    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df['id'].isin(outfit.ids)]
+    n_pieces = len(pieces)
+    cols = min(4, n_pieces)
+    rows = (n_pieces + cols - 1) // cols
+
+    for i, (_, row) in enumerate(pieces.iterrows(), start=1):
+        ax = fig.add_subplot(rows, cols, i)
+        ax.axis('off')
+        try:
+            img_path = Path(row['rgba_path'])
+            if not img_path.is_absolute():
+                img_path = BASE_DIR / img_path
+            img = Image.open(img_path)
+            if img.mode == 'RGBA':
+                background = Image.new('RGBA', img.size, (255, 255, 255, 255))
+                img = Image.alpha_composite(background, img)
+            plt.imshow(img)
+        except Exception as e:
+            ax.text(0.5, 0.5, f"Missing\n{row['folder_name']}", ha='center', va='center', transform=ax.transAxes)
+
+    plt.tight_layout()
+    plt.show()
+
+def print_outfit(outfit):
+    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df["id"].isin(outfit.ids)]
+    for _, row in pieces.iterrows():
+        print(f"{row['type'].upper():<10} | {row['folder_name']} ({row['class']})")
+    print('\n')
+
+
+########################## outfit recommendation ############################
 
 def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
     wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
@@ -106,14 +251,6 @@ def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
     # If we reach here, we couldn't find a new outfit
     raise ValueError("Could not sample a new outfit — not enough wardrobe items or all combinations used")
 
-
-def print_outfit(outfit):
-    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df["id"].isin(outfit.ids)]
-    for _, row in pieces.iterrows():
-        print(f"{row['type'].upper():<10} | {row['folder_name']} ({row['class']})")
-    print('\n')
-
-
 def recommend_outfit(k, wardrobe_df=None, amt='one'):
     wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
     used_combos = set()
@@ -133,7 +270,6 @@ def recommend_outfit(k, wardrobe_df=None, amt='one'):
     
         score = outfit.score
         print_outfit(outfit)
-        print(f"color: {outfit.color_c_score:.3f}, clip_emb: {outfit.emb_c_score:.3f}, tf-tdf: {outfit.tftdf_score:.3f}, overall: {outfit.score}")
         if score > best_score:
             best_score, best_outfit = score, outfit
 
@@ -144,44 +280,15 @@ def recommend_outfit(k, wardrobe_df=None, amt='one'):
     
     return best_outfit, best_score  # if (amt == 'one'): 
 
-def display_outfit(outfit, figsize=(12, 8)):
-    if not outfit:
-        print("No outfit to display")
-        return
-
-    fig = plt.figure(figsize=figsize)
-    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df['id'].isin(outfit.ids)]
-    n_pieces = len(pieces)
-    cols = min(4, n_pieces)
-    rows = (n_pieces + cols - 1) // cols
-
-    for i, (_, row) in enumerate(pieces.iterrows(), start=1):
-        ax = fig.add_subplot(rows, cols, i)
-        ax.axis('off')
-        try:
-            img_path = Path(row['rgba_path'])
-            if not img_path.is_absolute():
-                img_path = BASE_DIR / img_path
-            img = Image.open(img_path)
-            if img.mode == 'RGBA':
-                background = Image.new('RGBA', img.size, (255, 255, 255, 255))
-                img = Image.alpha_composite(background, img)
-            plt.imshow(img)
-        except Exception as e:
-            ax.text(0.5, 0.5, f"Missing\n{row['folder_name']}", ha='center', va='center', transform=ax.transAxes)
-
-    plt.tight_layout()
-    plt.show()
-
 
 def main():
-    outfits = recommend_outfit(10, amt='one')
+    outfits = recommend_outfit(3, amt='one')
     # print_outfit(outfit1)
     # print(f"\nOutfit compatibility score: {score1:.3f}")
     outfit = outfits[0]
     print('------FINAL OUTFIT------')
     print_outfit(outfit=outfit)   
-    print(f"color: {outfit.color_c_score:.3f}, clip_emb: {outfit.emb_c_score:.3f}, tf-tdf: {outfit.tftdf_score:.3f}, overall: {outfit.score}")
+    outfit.print_scores()
     display_outfit(outfit)
     
     
