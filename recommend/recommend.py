@@ -3,6 +3,13 @@ recommendation:
 - tweak probability of generating a specific outfit in `sample_outfit`
 - 
 
+TODO: add functinality to: 
+- sample outfit based on preexiting piece: ✅
+- compute compatibility of specific input pieces (by id perhaps)
+- tweak weights on each metric, ensure proper scoring
+- implement a nearest neighbor search amongst entire wardrobe, instead of sampling and testing
+- implement tfidf with SpaCy or Word2Vec embeddings
+- attempt implementing attribute logic to retrieve natrual language senetences instead of descrete keywords for each attribute for downstream sentece to sentence matching
 '''
 
 from pathlib import Path
@@ -16,6 +23,7 @@ import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import json
+import argparse
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # cis5810final/
@@ -23,9 +31,9 @@ WARDROBE_CSV = BASE_DIR / 'data' / 'wardrobe.csv'
 
 SCORE_WEIGHTS = {   # modify here 
             'embedding': 0.1,
-            'color': 0.6,
-            'tfidf': 0.1,
-            'attribute': 0.2
+            'color': 0.4,
+            'tfidf': 0.2,
+            'attribute': 0.3
         }
 
 def load_wardrobe():
@@ -96,7 +104,7 @@ class Outfit:
             except (FileNotFoundError, json.JSONDecodeError) as e:
                 print(f"Error loading {row['attributes_path']}: {e}")
         
-        return score_outfit_compatibility(
+        return score_attributes(
             outfit_list=outfit_list,
             weights= {
                 'Dominant_Color': 3, 
@@ -130,7 +138,7 @@ def check_attribute_match(query_value, rule_list):
     # Note: You may add logic here for exact matches or range checks (e.g., Formality Level)
     return False
 
-def score_outfit_compatibility(outfit_list, weights):
+def score_attributes(outfit_list, weights):
     total_score = 0
     max_possible_score = 0
     
@@ -218,26 +226,41 @@ def print_outfit(outfit):
 
 ########################## outfit recommendation ############################
 
-def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
+def score_selected_outfit(outfit_ids, wardrobe_df=None):
+    return Outfit(list(outfit_ids), wardrobe_df).score
+
+
+def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50, selected_ids=[]):
+    '''
+    Sample outfit by randomly selecting pieces and putting them together
+    Given a list of ids `selected_pieces`, can create outfit on top of those items
+    '''
     wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
     types = wardrobe_df["type"].unique()
+    if selected_ids:
+        selected_pieces = [
+            row for _, row in wardrobe_df.loc[wardrobe_df["id"].isin(selected_ids)].iterrows()
+        ]
+    else:
+        selected_pieces = []
 
     for attempt in range(max_attempts):
-        pieces = []
+        pieces = list(selected_pieces)
+        selected_types = {p['type'] for p in pieces}
 
         # Decide whether to use fullbody
-        use_fullbody = "fullbody" in types and np.random.rand() < 0.5
-        if use_fullbody and len(wardrobe_df[wardrobe_df["type"] == "fullbody"]) > 0:
+        use_fullbody = ("fullbody" in types) and (np.random.rand() < 0.5) and ('fullbody' not in selected_types)
+        if (use_fullbody) and (len(wardrobe_df[wardrobe_df["type"] == "fullbody"]) > 0):
             pieces.append(wardrobe_df[wardrobe_df["type"] == "fullbody"].sample(1).iloc[0])
         else:
-            if "top" in types and len(wardrobe_df[wardrobe_df["type"] == "top"]) > 0:
+            if ("top" in types) and (len(wardrobe_df[wardrobe_df["type"] == "top"]) > 0) and ('top' not in selected_types):
                 pieces.append(wardrobe_df[wardrobe_df["type"] == "top"].sample(1).iloc[0])
-            if "bottom" in types and len(wardrobe_df[wardrobe_df["type"] == "bottom"]) > 0:
+            if ("bottom" in types) and (len(wardrobe_df[wardrobe_df["type"] == "bottom"]) > 0) and ('bottom' not in selected_types):
                 pieces.append(wardrobe_df[wardrobe_df["type"] == "bottom"].sample(1).iloc[0])
 
-        if "shoes" in types and len(wardrobe_df[wardrobe_df["type"] == "shoes"]) > 0:
+        if ("shoes" in types) and (len(wardrobe_df[wardrobe_df["type"] == "shoes"]) > 0) and ('shoes' not in selected_types):
             pieces.append(wardrobe_df[wardrobe_df["type"] == "shoes"].sample(1).iloc[0])
-        if "accessories" in types and len(wardrobe_df[wardrobe_df["type"] == "accessories"]) > 0 and np.random.rand() < 0.5:
+        if ("accessories" in types) and (len(wardrobe_df[wardrobe_df["type"] == "accessories"]) > 0) and (np.random.rand() < 0.5) and ('accessories' not in selected_types):
             pieces.append(wardrobe_df[wardrobe_df["type"] == "accessories"].sample(1).iloc[0])
 
         # Generate the combination ID
@@ -251,7 +274,7 @@ def sample_outfit(used_combos, wardrobe_df=None, max_attempts=50):
     # If we reach here, we couldn't find a new outfit
     raise ValueError("Could not sample a new outfit — not enough wardrobe items or all combinations used")
 
-def recommend_outfit(k, wardrobe_df=None, amt='one'):
+def recommend_outfit(k, wardrobe_df=None, amt='one', selected_ids=[]):
     wardrobe_df = wardrobe_df if wardrobe_df is not None else load_wardrobe()
     used_combos = set()
     best_score, best_outfit = 0, None
@@ -259,7 +282,7 @@ def recommend_outfit(k, wardrobe_df=None, amt='one'):
 
     for _ in range(k):
         try:
-            outfit = sample_outfit(used_combos, wardrobe_df)
+            outfit = sample_outfit(used_combos, wardrobe_df=wardrobe_df, selected_ids=selected_ids)
         except ValueError:
             if amt == 'many':
                 outfits.sort(key=lambda x: x.score, reverse=True)
@@ -280,11 +303,21 @@ def recommend_outfit(k, wardrobe_df=None, amt='one'):
     
     return best_outfit, best_score  # if (amt == 'one'): 
 
-
 def main():
-    outfits = recommend_outfit(3, amt='one')
-    # print_outfit(outfit1)
-    # print(f"\nOutfit compatibility score: {score1:.3f}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--selected_ids", type=str, help="Ids of the outfit piece you'd like incorporated", nargs="+")
+
+    args = parser.parse_args()
+
+    if args.selected_ids:
+        outfits = recommend_outfit(50, amt='one', selected_ids=args.selected_ids)
+        print(f'input selection id: {args.selected_ids}')
+        print(f'args.selected_ids: {score_selected_outfit(args.selected_ids)}')
+    else: 
+        outfits = recommend_outfit(50, amt='one')
+
+    
+
     outfit = outfits[0]
     print('------FINAL OUTFIT------')
     print_outfit(outfit=outfit)   
