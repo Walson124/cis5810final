@@ -33,18 +33,3 @@ Run:
 python recommend/recommend.py
 ```
 This recommends and displays an outfit based on your wardrobe.
-
-***
-
-# How to run frontend on local
-
-We are using streamlit now, easier to run locally than full react application w/ some separate backend
-
-To run:
-- cd into root dir (cis5810final)
-- Run `streamlit run streamlit_app/Home.py`
-
-You'll need streamlit installed: `pip install streamlit`
-
-For explore.py it uses a Pixabay API key. You can get your own for free here: [Pixabay link (you'll need to login/make account)](https://pixabay.com/api/docs/)
-Just paste it in when you get it: `API_KEY = "<your-api-key-here>"`
