@@ -15,6 +15,7 @@ import pandas as pd
 from PIL import Image
 import numpy as np
 from sklearn.cluster import KMeans
+import gemini_client
 
 from transformers import CLIPProcessor, CLIPModel
 import torch, os
@@ -94,8 +95,11 @@ def process_folder(folder_path, M: Models):
     detections = manifest["detections"][0]
     cls = manifest["clip_topk"][0][0]
     group_type  = category(cls)
-    rgba_path = detections["rgba_path"]  
-    #"rgba_path": "out\\american_vintage_men_s_black_jacket\\rgba\\00_jacket.png",
+    rgba_path = detections["rgba_path"]
+    #    "rgba_path": "out\\gap_mens_brown_and_tan_shirt\\rgba\\00_jacket.png",
+    #    OUT_DIR = (BASE_DIR / "wardrobe_segmented").resolve()
+    # rgba_path = rgba_path.replace("out\\", str(OUT_DIR) + "\\", 1)
+
     
     try:
         image = Image.open(rgba_path).convert("RGBA")
@@ -105,6 +109,17 @@ def process_folder(folder_path, M: Models):
     color_vec = M.top_colors(image)
     clip_emb_path = M.clip_embedding(image, folder_path)
 
+    client = gemini_client.init_client()
+    json_dict = gemini_client.get_fashion_attributes(client, rgba_path)
+    description = json_dict['DESCRIPTION']
+    attributes_path = folder_path / 'attributes.json'
+    try:
+        with open(attributes_path, 'w') as f:
+            json.dump(json_dict, f, indent=4)
+
+    except Exception as e:
+        print(f" Error saving JSON file: {e}")
+
     return {
         "id": item_id,
         "folder_name": folder_path.name,
@@ -112,7 +127,9 @@ def process_folder(folder_path, M: Models):
         "type": group_type,
         "rgba_path": str(rgba_path),
         "color_vec": color_vec.tolist(),
-        "clip_emb_path": str(clip_emb_path)
+        "clip_emb_path": str(clip_emb_path),
+        "description": description,
+        "attributes_path": attributes_path
     }
 
 def add_pieces(img_paths: list[str]):
@@ -138,19 +155,23 @@ def add_pieces(img_paths: list[str]):
         OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)  # <-- create folder if missing
         df.to_csv(OUTPUT_CSV, index=False)
 
-
 def main():
     # process entire folder in 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     M = Models(device=device)
     
+    subfolders = OUT_DIR.iterdir()
+    add_pieces(subfolders)
+
+
     rows = []
     for subfolder in OUT_DIR.iterdir():
         if subfolder.is_dir():
             row = process_folder(subfolder, M)
             if row:
                 rows.append(row)
+                
                 print(f"{row['folder_name']} -> ok")
 
     df = pd.DataFrame(rows)
