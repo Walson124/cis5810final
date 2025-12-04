@@ -35,7 +35,15 @@ class Outfit:
 
     def embeddings(self):
         pieces = self.wardrobe_df.loc[self.wardrobe_df['id'].isin(self.ids)]
-        embs = [torch.load(p).flatten() for p in pieces['clip_emb_path'].tolist()]
+        paths = pieces['clip_emb_path'].tolist()
+
+        embs = []
+        for p in paths:
+            if p and Path(p).exists():
+                embs.append(torch.load(p).flatten())
+        if len(embs) < 2:
+            # fall back or raise a clearer error
+            raise ValueError("Not enough valid embeddings for this outfit.")
         return torch.stack(embs)
 
     def compute_compatibility_emb(self):
