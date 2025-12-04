@@ -3,7 +3,6 @@ from pathlib import Path
 from PIL import Image
 import shutil
 import uuid
-import pandas as pd
 
 from globals import get_model, get_segment_folder_func
 
@@ -104,13 +103,7 @@ if segmented_files:
                     if f"{clothing_name}.png" in st.session_state["processed_files"]:
                         st.session_state["processed_files"].remove(f"{clothing_name}.png")
 
-                    # NEW: remove this item from wardrobe.csv
-                    csv_path = Path("data/wardrobe.csv")
-                    if csv_path.exists():
-                        df = pd.read_csv(csv_path)
-                        df = df[df["folder_name"] != clothing_name]
-                        df.to_csv(csv_path, index=False)
-
                     st.rerun()
+
 else:
     st.info("No segmented items yet.")
