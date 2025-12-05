@@ -110,22 +110,49 @@ def expand_with_synonyms(labels):
     return out
 
 # ---------------- Models (load once) ----------------
+# class Models:
+#     def __init__(self, labels, det_model, sam_model, device):
+#         # CLIP
+#         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+#         self.clip_proc  = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+#         self.labels = labels
+
+#         # Grounding-DINO
+#         self.detector = pipeline(
+#             task="zero-shot-object-detection",
+#             model=det_model,
+#             device=(0 if (device.startswith("cuda") and torch.cuda.is_available()) else -1)
+#         )
+
+#         # SAM
+#         self.sam = SamModel.from_pretrained(sam_model).to(device)
+#         self.sam_proc = SamProcessor.from_pretrained(sam_model)
+#         self.device = device
+
 class Models:
     def __init__(self, labels, det_model, sam_model, device):
         # CLIP
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-        self.clip_proc  = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        if device != "cpu":
+            self.clip_model = self.clip_model.to(device)
+        self.clip_proc = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.labels = labels
 
         # Grounding-DINO
         self.detector = pipeline(
             task="zero-shot-object-detection",
             model=det_model,
-            device=(0 if (device.startswith("cuda") and torch.cuda.is_available()) else -1)
+            device=(0 if (device.startswith("cuda") and torch.cuda.is_available()) else -1),
         )
 
         # SAM
-        self.sam = SamModel.from_pretrained(sam_model).to(device)
+        if device == "cpu":
+            # keep it on CPU; from_pretrained already does that, and calling .to()
+            # can hit the "meta tensor" NotImplementedError on new transformers
+            self.sam = SamModel.from_pretrained(sam_model)
+        else:
+            self.sam = SamModel.from_pretrained(sam_model).to(device)
+
         self.sam_proc = SamProcessor.from_pretrained(sam_model)
         self.device = device
 

@@ -5,6 +5,7 @@ import shutil
 import uuid
 
 from globals import get_model, get_segment_folder_func
+from recommend.wardrobe import add_pieces, OUT_DIR, OUTPUT_CSV
 
 # Always call these at the top of the page
 M = get_model()
@@ -50,10 +51,21 @@ for file in incoming:
 
     st.session_state["processed_files"].add(file_id)
 
-    # Save file
-    next_num = len(list(wardrobe_folder.glob("*.png"))) + 1
+    # Save file with a fresh clothing_N index that never reuses existing ones
+    existing = list(wardrobe_folder.glob("clothing_*.png"))
+    nums = []
+    for p in existing:
+        stem = p.stem  # e.g. "clothing_6"
+        try:
+            n = int(stem.split("_")[-1])
+            nums.append(n)
+        except ValueError:
+            pass
+
+    next_num = max(nums) + 1 if nums else 1
     img_path = wardrobe_folder / f"clothing_{next_num}.png"
     Image.open(file).save(img_path)
+
 
     st.image(str(img_path), caption=f"Added {img_path.name}", width=300)
     new_files_saved = True
@@ -62,8 +74,6 @@ for file in incoming:
 if new_files_saved:
     st.session_state["run_seg"] = True
     st.rerun()
-
-from recommend.wardrobe import add_pieces
 
 # Actually run segmentation
 if st.session_state["run_seg"]:
@@ -79,19 +89,42 @@ if st.session_state["run_seg"]:
     st.success("Segmentation complete and CSV updated!")
     st.rerun()
 
+
 # ==== DISPLAY SEGMENTED RESULTS ====
 st.write("### Segmented Wardrobe")
-segmented_files = sorted(seg_folder.glob("*/rgba/*.png"))
 
-if segmented_files:
+# One card per clothing_* folder
+clothing_dirs = sorted([d for d in seg_folder.iterdir() if d.is_dir()])
+
+if clothing_dirs:
     cols_count = 3
-    for i in range(0, len(segmented_files), cols_count):
+    for i in range(0, len(clothing_dirs), cols_count):
         cols = st.columns(cols_count)
-        for j, f in enumerate(segmented_files[i:i + cols_count]):
-            with cols[j]:
-                st.image(str(f), width=200, caption=f.name)
+        for j, clothing_dir in enumerate(clothing_dirs[i : i + cols_count]):
+            clothing_name = clothing_dir.name  # e.g. "clothing_2"
 
-                clothing_name = f.parents[1].name  # clothing_#
+            with cols[j]:
+                # Prefer standardized.png if it exists, else first rgba/*.png
+                std_path = clothing_dir / "standardized.png"
+                if std_path.exists():
+                    img_path = std_path
+                else:
+                    rgba_files = sorted((clothing_dir / "rgba").glob("*.png"))
+                    if not rgba_files:
+                        st.caption(f"{clothing_name} (no images)")
+                        continue
+                    img_path = rgba_files[0]
+
+                try:
+                    img = Image.open(img_path)
+                    # same white-background treatment as Outfit Builder
+                    if img.mode == "RGBA":
+                        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                        img = Image.alpha_composite(bg, img)
+                    st.image(img, width=200, caption=clothing_name)
+                except Exception as e:
+                    st.error(f"Error loading {clothing_name}: {e}")
+
                 if st.button(f"Delete {clothing_name}", key=f"{clothing_name}_{i}_{j}"):
                     # Delete segmented output and original image
                     shutil.rmtree(seg_folder / clothing_name)
@@ -104,6 +137,5 @@ if segmented_files:
                         st.session_state["processed_files"].remove(f"{clothing_name}.png")
 
                     st.rerun()
-
 else:
     st.info("No segmented items yet.")
