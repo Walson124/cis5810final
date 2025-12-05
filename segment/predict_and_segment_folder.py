@@ -316,7 +316,7 @@ def segment_folder(images_dir, out_root="out", labels=None, M=None):
                 image_path=p, 
                 out_root=out_root, 
                 M=M, 
-                det_thresh=DET_THRESH, 
+                det_thresh=0.05, 
                 nms_iou=NMS_IOU, 
                 global_iou=GLOBAL_IOU, 
                 min_area_frac=MIN_AREA_FRAC, 
