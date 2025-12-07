@@ -5,6 +5,9 @@ from google import genai
 from google.genai import types
 from PIL import Image
 import json
+import io
+from pathlib import Path
+from io import BytesIO
 
 # The image file you want to analyze (replace with your file name)
 # Using an absolute path (r"...") is good for reliability
@@ -212,3 +215,114 @@ if __name__ == "__main__":
     except (ValueError, RuntimeError, FileNotFoundError) as e:
         # Catch and print relevant errors (like missing API key or missing file)
         print(f"\nFATAL ERROR: {e}")
+
+# def render_standardized_image(client, image_path: str | Path) -> Image.Image:
+#     """
+#     TEMP VERSION:
+#     - No Gemini call (so no API latency or errors)
+#     - Just normalizes the canvas to a square with a white background,
+#       centered item.
+#     """
+#     image_path = Path(image_path)
+#     orig = Image.open(image_path).convert("RGBA")
+
+#     w, h = orig.size
+#     side = max(w, h)
+
+#     # square canvas, white background
+#     canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
+#     offset = ((side - w) // 2, (side - h) // 2)
+#     canvas.paste(orig, offset, orig)
+
+#     return canvas
+
+def render_standardized_image(client, image_path: str | Path) -> Image.Image:
+    """
+    Image-to-image standardization using Gemini.
+    Takes an RGBA clothing cutout and asks Gemini to render a
+    standardized catalog-style view. Returns a PIL Image.
+    """
+    image_path = Path(image_path)
+    src_img = Image.open(image_path).convert("RGBA")
+
+    prompt = (
+        "You are a fashion product renderer. "
+        "Using the reference image, recreate the same item of clothing "
+        "from a standardized catalog view: facing the viewer, centered, "
+        "on a plain white background. Preserve the item's style, material, "
+        "and colors. Do not add a model or body. Do not add text."
+    )
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-image-preview",  # or whatever image model you're using
+        contents=[prompt, src_img],
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+        ),
+    )
+
+    # Walk candidates/parts to find the first image
+    for cand in getattr(response, "candidates", []):
+        for part in getattr(cand.content, "parts", []):
+            if getattr(part, "inline_data", None):
+                return Image.open(BytesIO(part.inline_data.data)).convert("RGBA")
+
+    raise RuntimeError("Gemini did not return an image for standardization.")
+
+
+def get_or_create_attributes(client, image_path: str | Path, folder_path: Path):
+    """
+    Load attributes from attributes.json if it exists for this clothing folder.
+    Otherwise, call Gemini via get_fashion_attributes and cache the result.
+
+    Returns:
+        json_dict: parsed attributes dict
+        attributes_path: Path to attributes.json
+        description: short natural-language description
+    """
+    attributes_path = folder_path / "attributes.json"
+
+    # If we've already computed attributes for this item, reuse them.
+    if attributes_path.exists():
+        with open(attributes_path, "r") as f:
+            json_dict = json.load(f)
+    else:
+        # Call Gemini once and cache the result
+        json_dict = get_fashion_attributes(client, image_path)
+        attributes_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(attributes_path, "w") as f:
+            json.dump(json_dict, f, indent=4)
+
+    description = json_dict.get("DESCRIPTION", "")
+    return json_dict, attributes_path, description
+
+def beautify_outfit_preview(client, mannequin_path: str | Path) -> Image.Image:
+    """
+    Given a rough mannequin+clothes composite, ask Gemini to redraw it
+    as a clean mannequin wearing the same outfit. Returns a PIL image.
+    """
+    mannequin_path = Path(mannequin_path)
+    base_img = Image.open(mannequin_path).convert("RGBA")
+
+    prompt = (
+        "You are a fashion illustrator. Using this rough image as a guide, "
+        "redraw a clean, realistic front-facing mannequin wearing the same "
+        "clothes. Preserve the garments' colors and general shapes, but "
+        "remove blocky white backgrounds and make the clothes fit naturally "
+        "on the mannequin. Use a plain light gray or white background. "
+        "Do not add a detailed face or text."
+    )
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-image-preview",  # or another image model you’re using
+        contents=[prompt, base_img],
+        config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+    )
+
+    # Same pattern as your standardized-image helper: pull first inline image
+    for cand in getattr(response, "candidates", []):
+        for part in getattr(cand.content, "parts", []):
+            if getattr(part, "inline_data", None):
+                return Image.open(BytesIO(part.inline_data.data)).convert("RGBA")
+
+    raise RuntimeError("Gemini did not return an image for outfit beautification.")

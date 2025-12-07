@@ -122,7 +122,6 @@ class Outfit:
         print(f"- attributes: {self.scores['attribute']}")
         print(f"OVERALL: {self.score}")
 
-
 ########################## attribute matching logic ############################
 
 def check_attribute_match(query_value, rule_list):
@@ -323,7 +322,145 @@ def main():
     print_outfit(outfit=outfit)   
     outfit.print_scores()
     display_outfit(outfit)
-    
+
+# Paths for mannequin compositing (keep these where they were)
+MANNEQUIN_PATH = BASE_DIR / "assets" / "mannequin_front.png"
+MANNEQUIN_OUT_DIR = BASE_DIR / "outfits"
+
+
+def _crop_around_content(img: Image.Image, bg_threshold: int = 245) -> Image.Image:
+    """
+    Crop away mostly-white background so we keep just the garment.
+
+    bg_threshold: 0–255, higher = more aggressive cropping.
+    """
+    img_rgb = img.convert("RGB")
+    arr = np.array(img_rgb)
+
+    # mask of "non-white" pixels
+    non_white = (arr[:, :, 0] < bg_threshold) | \
+                (arr[:, :, 1] < bg_threshold) | \
+                (arr[:, :, 2] < bg_threshold)
+
+    if not non_white.any():
+        # everything is white, nothing to crop
+        return img
+
+    ys, xs = np.where(non_white)
+    y_min, y_max = ys.min(), ys.max()
+    x_min, x_max = xs.min(), xs.max()
+
+    # small padding
+    pad = 5
+    y_min = max(0, y_min - pad)
+    x_min = max(0, x_min - pad)
+    y_max = min(img.height, y_max + pad)
+    x_max = min(img.width, x_max + pad)
+
+    return img.crop((x_min, y_min, x_max, y_max))
+
+
+def _fit_into_box(img: Image.Image, box_w: int, box_h: int) -> Image.Image:
+    """
+    Crop around the garment and then resize to fit inside (box_w, box_h)
+    while preserving aspect ratio.
+    """
+    img = _crop_around_content(img)
+    w, h = img.size
+    if w == 0 or h == 0:
+        return img
+    scale = min(box_w / w, box_h / h)
+    new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+    return img.resize((new_w, new_h), Image.LANCZOS)
+
+
+def render_outfit_on_mannequin(outfit, out_path: Path | None = None) -> Path:
+    """
+    Render an outfit onto a mannequin silhouette and save to disk.
+
+    Returns the path to the rendered image.
+    """
+    MANNEQUIN_OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    base = Image.open(MANNEQUIN_PATH).convert("RGBA")
+    canvas = base.copy()
+    W, H = canvas.size
+
+    # (x, y, w, h) boxes – tuned for a front-facing full-body mannequin.
+    # You can tweak these numbers later if needed.
+    layout = {
+        "accessories": (int(W * 0.33), int(H * 0.06), int(W * 0.34), int(H * 0.12)),
+        "top":         (int(W * 0.25), int(H * 0.20), int(W * 0.50), int(H * 0.30)),
+        "bottom":      (int(W * 0.30), int(H * 0.48), int(W * 0.40), int(H * 0.28)),
+        "shoes":       (int(W * 0.35), int(H * 0.80), int(W * 0.30), int(H * 0.13)),
+    }
+
+    # vertical alignment within each box
+    v_align = {
+        "accessories": "top",
+        "top":         "top",
+        "bottom":      "bottom",
+        "shoes":       "bottom",
+    }
+
+    pieces = outfit.wardrobe_df.loc[outfit.wardrobe_df["id"].isin(outfit.ids)]
+
+    for _, row in pieces.iterrows():
+        ctype = row["type"]
+        if ctype not in layout:
+            continue
+
+        x, y, bw, bh = layout[ctype]
+
+        # Prefer standardized image if present, else fallback to RGBA
+        col_name = (
+            "standard_image_path"
+            if "standard_image_path" in outfit.wardrobe_df.columns
+            else "rgba_path"
+        )
+        img_col_val = row.get(col_name, row.get("rgba_path"))
+        if pd.isna(img_col_val):
+            continue
+
+        img_path = Path(img_col_val)
+        if not img_path.is_absolute():
+            img_path = BASE_DIR / img_path
+
+        if not img_path.exists():
+            print(f"[WARN] Mannequin: image not found {img_path}")
+            continue
+
+        try:
+            img = Image.open(img_path).convert("RGBA")
+        except Exception as e:
+            print(f"[WARN] Mannequin: failed to open {img_path}: {e}")
+            continue
+
+        img = _fit_into_box(img, bw, bh)
+        iw, ih = img.size
+
+        # Horizontal center in the box
+        dest_x = x + (bw - iw) // 2
+
+        # Vertical alignment (top / bottom / center)
+        align = v_align.get(ctype, "center")
+        if align == "top":
+            dest_y = y
+        elif align == "bottom":
+            dest_y = y + (bh - ih)
+        else:
+            dest_y = y + (bh - ih) // 2
+
+        canvas.alpha_composite(img, dest=(dest_x, dest_y))
+
+    # Default output path: stable per outfit IDs
+    if out_path is None:
+        ids_str = "_".join(sorted(map(str, outfit.ids)))
+        out_path = MANNEQUIN_OUT_DIR / f"mannequin_{ids_str}.png"
+
+    canvas.save(out_path)
+    return out_path
+
     
 if __name__ == "__main__":
     main()
