@@ -5,7 +5,7 @@ recommendation:
 
 TODO: add functinality to: 
 - sample outfit based on preexiting piece: ✅
-- compute compatibility of specific input pieces (by id perhaps)
+- compute compatibility of specific input pieces (by id perhaps) ✅
 - tweak weights on each metric, ensure proper scoring
 - implement a nearest neighbor search amongst entire wardrobe, instead of sampling and testing
 - implement tfidf with SpaCy or Word2Vec embeddings
