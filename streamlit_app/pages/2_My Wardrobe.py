@@ -3,6 +3,7 @@ from pathlib import Path
 from PIL import Image
 import shutil
 import uuid
+import pandas as pd
 
 from globals import get_model, get_segment_folder_func
 from recommend.wardrobe import add_pieces, OUT_DIR, OUTPUT_CSV
@@ -20,6 +21,7 @@ if "run_seg" not in st.session_state:
 # Create directories
 wardrobe_folder = Path("wardrobe_images")
 seg_folder = Path("wardrobe_segmented")
+wardrobe_csv = Path("data") / "wardrobe.csv"
 wardrobe_folder.mkdir(exist_ok=True)
 seg_folder.mkdir(exist_ok=True)
 
@@ -131,6 +133,13 @@ if clothing_dirs:
                     orig = wardrobe_folder / f"{clothing_name}.png"
                     if orig.exists():
                         orig.unlink()
+
+                    # Remove from CSV if it exists
+                    if wardrobe_csv.exists():
+                        df = pd.read_csv(wardrobe_csv)
+                        # Find rows where folder_name matches the deleted clothing_name
+                        df_filtered = df[df['folder_name'] != clothing_name]
+                        df_filtered.to_csv(wardrobe_csv, index=False)
 
                     # Remove from processed file list
                     if f"{clothing_name}.png" in st.session_state["processed_files"]:
